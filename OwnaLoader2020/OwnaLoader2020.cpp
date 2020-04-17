@@ -118,10 +118,10 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 						lpLoadLibraryA = GetProcAddress(hKernel32, "LoadLibraryA");
 						if (lpLoadLibraryA)
 						{
-							hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, PE32.th32ProcessID);
+							hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, false, PE32.th32ProcessID);
 							if (hProcess)
 							{
-								lpRemoteString = VirtualAllocEx(hProcess, 0, sizeof(szDllToInject), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+								lpRemoteString = VirtualAllocEx(hProcess, 0, sizeof(szDllToInject), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 
 								if (lpRemoteString)
 								{
