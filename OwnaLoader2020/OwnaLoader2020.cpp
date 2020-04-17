@@ -9,14 +9,84 @@ HWND hWnd;
 
 PROCESSENTRY32 PE32;
 NOTIFYICONDATA data;
-TCHAR szTarget[] = _T("game.exe"); // <-- change this if you want to use the loader with another game!
+TCHAR szTarget[] = _T("Game.exe"); // <-- change this if you want to use the loader with another game!
 TCHAR szPath[MAX_PATH], szDllToInject[MAX_PATH];
 
 std::list<DWORD> aulInjectedPIDs;
 
-void Fail(LPCTSTR message)
+VOID Fail(LPCTSTR message)
 {
+	TCHAR buf[256];
+	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		buf, (sizeof(buf) / sizeof(TCHAR)), NULL);
+	MessageBox(NULL, buf, _T("Error!"), MB_ICONERROR | MB_OK);
 	MessageBox(NULL, message, _T("Error!"), MB_ICONERROR | MB_OK);
+}
+
+// Source: https://docs.microsoft.com/en-us/windows/win32/secauthz/enabling-and-disabling-privileges-in-c--
+BOOL SetPrivilege(
+	HANDLE hToken,          // access token handle
+	LPCTSTR lpszPrivilege,  // name of privilege to enable/disable
+	BOOL bEnablePrivilege   // to enable or disable privilege
+)
+{
+	TOKEN_PRIVILEGES tp;
+	LUID luid;
+
+	if (!LookupPrivilegeValue(
+		NULL,            // lookup privilege on local system
+		lpszPrivilege,   // privilege to lookup 
+		&luid))        // receives LUID of privilege
+	{
+		printf("LookupPrivilegeValue error: %u\n", GetLastError());
+		return FALSE;
+	}
+
+	tp.PrivilegeCount = 1;
+	tp.Privileges[0].Luid = luid;
+	if (bEnablePrivilege)
+		tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+	else
+		tp.Privileges[0].Attributes = 0;
+
+	// Enable the privilege or disable all privileges.
+
+	if (!AdjustTokenPrivileges(
+		hToken,
+		FALSE,
+		&tp,
+		sizeof(TOKEN_PRIVILEGES),
+		(PTOKEN_PRIVILEGES)NULL,
+		(PDWORD)NULL))
+	{
+		printf("AdjustTokenPrivileges error: %u\n", GetLastError());
+		return FALSE;
+	}
+
+	if (GetLastError() == ERROR_NOT_ALL_ASSIGNED)
+
+	{
+		printf("The token does not have the specified privilege. \n");
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+BOOL EnableDebugPrivledges()
+{
+	HANDLE hToken;
+	BOOL success = FALSE;
+
+	if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+	{
+		success = SetPrivilege(hToken, SE_DEBUG_NAME, TRUE);
+	}
+
+	CloseHandle(hToken);
+
+	return success;
 }
 
 DWORD WINAPI InjectionThread(LPVOID lpParam)
@@ -27,7 +97,7 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 	FARPROC lpLoadLibraryA;
 	PE32.dwSize = sizeof(PROCESSENTRY32);
 
-	while (true)
+	while (TRUE)
 	{
 		hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 		Process32First(hSnapshot, &PE32);
@@ -148,7 +218,7 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 	return 0;
 }
 
-void TrayProc(WPARAM wParam, LPARAM lParam)
+VOID TrayProc(WPARAM wParam, LPARAM lParam)
 {
 	if ((UINT)lParam == WM_LBUTTONDOWN)
 	{
@@ -195,6 +265,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_ LPWSTR    lpCmdLine,
                      _In_ int       nCmdShow)
 {
+	// Get debug privledges so we can OpenProcess other processes
+	EnableDebugPrivledges();
+
     // Load szDllToInject with the path of the DLL to be injected, determined based on the filename of this program
     // just replace ".exe" with ".dll".
     GetModuleFileName(0, szPath, sizeof(szPath));
