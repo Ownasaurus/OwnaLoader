@@ -164,9 +164,6 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="background.bmp" />
-    <Image Include="bitmap2.bmp" />
-    <Image Include="OwnaLoader2020.ico" />
-    <Image Include="small.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

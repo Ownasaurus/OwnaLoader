@@ -12,7 +12,6 @@ NOTIFYICONDATA data;
 TCHAR szTarget[] = _T("game.exe"); // <-- change this if you want to use the loader with another game!
 TCHAR szPath[MAX_PATH], szDllToInject[MAX_PATH];
 
-//TODO: maintain a list/queue/stack/? of processes that are currently injected
 std::list<DWORD> aulInjectedPIDs;
 
 void Fail(LPCTSTR message)
@@ -139,8 +138,6 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 						return 1;
 					}
 				}
-
-				break; // last line of the if statement
 			}
 		}
 		while (Process32Next(hSnapshot, &PE32));
@@ -198,11 +195,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_ LPWSTR    lpCmdLine,
                      _In_ int       nCmdShow)
 {
-    //UNREFERENCED_PARAMETER(hPrevInstance);
-    //UNREFERENCED_PARAMETER(lpCmdLine);
-
-    // TODO: Place code here.
-
     // Load szDllToInject with the path of the DLL to be injected, determined based on the filename of this program
     // just replace ".exe" with ".dll".
     GetModuleFileName(0, szPath, sizeof(szPath));
@@ -235,8 +227,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     data.dwInfoFlags = NIIF_INFO;
 
 	DWORD dwParam1, dwThreadID1;
+	// This thread constantly searches for processes to inject
     CreateThread(NULL, 0, InjectionThread, &dwParam1, 0, &dwThreadID1);
 
+	// This interface pretty much just serves to provide the user with an option to exit the program
     DialogBox(hInstance, MAKEINTRESOURCE(IDD_MAIN), hWnd, (DLGPROC)MainDlgProc);
 
     return 0;
