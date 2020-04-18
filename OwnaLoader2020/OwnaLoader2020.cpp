@@ -3,6 +3,7 @@
 
 #include "framework.h"
 #include "OwnaLoader2020.h"
+#include "RemoteOps.h"
 
 // Global Variables:
 HWND hWnd;
@@ -100,13 +101,6 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 	FARPROC lpLoadLibraryW;
 	PE32.dwSize = sizeof(PROCESSENTRY32);
 
-	BOOL bOurArch = FALSE;
-	if (!IsWow64Process(GetCurrentProcess(), &bOurArch))
-	{
-		Fail(_T("IsWow64Process failed before inject!"));
-		return 1;
-	}
-
 	while (TRUE)
 	{
 		hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -135,38 +129,27 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 						Fail(_T("IsWow64Process failed during inject!"));
 					}
 
-					if (bOurArch != bRemoteArch)
+
+					else if (bRemoteArch != bDllArch)
 					{
-						if (bOurArch)
+						if (bRemoteArch)
 						{
-							MessageBox(NULL, _T("This 32-bit injector should not be used to inject into a 64-bit process!"), _T("Error!"), MB_ICONERROR | MB_OK);
+							MessageBox(NULL, _T("This injector cannot inject a 64-bit dll into a 32-bit process!"), _T("Error!"), MB_ICONERROR | MB_OK);
 						}
 						else
 						{
-							MessageBox(NULL, _T("This 64-bit injector should not be used to inject into a 32-bit process!"), _T("Error!"), MB_ICONERROR | MB_OK);
-						}
-						ExitProcess(1);
-					}
-					else if (bOurArch != bDllArch)
-					{
-						if (bOurArch)
-						{
-							MessageBox(NULL, _T("This 32-bit injector should not be used to inject a 64-bit dll!"), _T("Error!"), MB_ICONERROR | MB_OK);
-						}
-						else
-						{
-							MessageBox(NULL, _T("This 64-bit injector should not be used to inject a 32-bit dll!"), _T("Error!"), MB_ICONERROR | MB_OK);
+							MessageBox(NULL, _T("This injector cannot inject a 32-bit dll into a 64-bit process!"), _T("Error!"), MB_ICONERROR | MB_OK);
 						}
 						ExitProcess(1);
 					}
 
-					hKernel32 = GetModuleHandle(_T("kernel32"));
+					hKernel32 = GetRemoteModuleHandle(hProcess, "kernel32");
 					if (!hKernel32)
 					{
 						Fail(_T("GetModuleHandle failed during inject!"));
 					}
 
-					lpLoadLibraryW = GetProcAddress(hKernel32, "LoadLibraryW");
+					lpLoadLibraryW = GetRemoteProcAddress(hProcess, hKernel32, "LoadLibraryW");
 					if (!lpLoadLibraryW)
 					{
 						Fail(_T("GetProcAddress failed during inject!"));
@@ -333,19 +316,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         return 1;
     }
 
+	// determine bit-ness of our target .dll
 	HANDLE hFile = CreateFile(szDllToInject, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
 	if (hFile == INVALID_HANDLE_VALUE)
 	{
 		Fail(_T("CreateFile failed while attempting to analyze the .dll"));
 	}
-
 	HANDLE hMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY | SEC_IMAGE, 0, 0, 0);
 	if (!hMapping || hMapping == INVALID_HANDLE_VALUE)
 	{
 		CloseHandle(hFile);
 		Fail(_T("CreateFileMapping failed while attempting to analyze the .dll"));
 	}
-
 	LPVOID addrHeader = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
 	if (addrHeader == NULL)
 	{
@@ -353,15 +335,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		CloseHandle(hMapping);
 		Fail(_T("MapViewOfFile failed while attempting to analyze the .dll"));
 	}
-
 	PIMAGE_NT_HEADERS peHdr = ImageNtHeader(addrHeader);
 	if (peHdr == NULL)
 	{
 		Fail(_T("ImageNtHeader failed while attempting to analyze the .dll"));
 	}
-
 	bDllArch = (peHdr->FileHeader.Machine == IMAGE_FILE_MACHINE_I386); // true if x86 .dll
-
 	CloseHandle(hFile);
 	CloseHandle(hMapping);
 	FindClose(hDllHnd);
