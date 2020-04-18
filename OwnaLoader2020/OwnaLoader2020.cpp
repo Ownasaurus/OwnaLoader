@@ -22,6 +22,8 @@ VOID Fail(LPCTSTR message)
 		buf, (sizeof(buf) / sizeof(TCHAR)), NULL);
 	MessageBox(NULL, buf, _T("Error!"), MB_ICONERROR | MB_OK);
 	MessageBox(NULL, message, _T("Error!"), MB_ICONERROR | MB_OK);
+
+	ExitProcess(1);
 }
 
 // Source: https://docs.microsoft.com/en-us/windows/win32/secauthz/enabling-and-disabling-privileges-in-c--
@@ -97,6 +99,13 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 	FARPROC lpLoadLibraryW;
 	PE32.dwSize = sizeof(PROCESSENTRY32);
 
+	BOOL bOurArch = FALSE;
+	if (!IsWow64Process(GetCurrentProcess(), &bOurArch))
+	{
+		Fail(_T("IsWow64Process failed before inject!"));
+		return 1;
+	}
+
 	while (TRUE)
 	{
 		hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -112,33 +121,48 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 				std::list<DWORD>::iterator it = std::find(aulInjectedPIDs.begin(), end, PE32.th32ProcessID);
 				if (it == end) // if not already injected, inject it!
 				{
+					hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, false, PE32.th32ProcessID);
+					if (!hProcess)
+					{
+						Fail(_T("OpenProcess failed during inject!"));
+					}
+
+					BOOL bRemoteArch = FALSE;
+					if (!IsWow64Process(hProcess, &bRemoteArch))
+					{
+						Fail(_T("IsWow64Process failed during inject!"));
+					}
+
+					if (bOurArch != bRemoteArch)
+					{
+						if (bOurArch)
+						{
+							MessageBox(NULL, _T("This 32-bit injector should not be used to inject into a 64-bit process!"), _T("Error!"), MB_ICONERROR | MB_OK);
+						}
+						else
+						{
+							MessageBox(NULL, _T("This 64-bit injector should not be used to inject into a 32-bit process!"), _T("Error!"), MB_ICONERROR | MB_OK);
+						}
+						ExitProcess(1);
+					}
+
 					hKernel32 = GetModuleHandle(_T("kernel32"));
 					if (!hKernel32)
 					{
 						Fail(_T("GetModuleHandle failed during inject!"));
-						return 1;
 					}
 
 					lpLoadLibraryW = GetProcAddress(hKernel32, "LoadLibraryW");
 					if (!lpLoadLibraryW)
 					{
 						Fail(_T("GetProcAddress failed during inject!"));
-						return 1;
-					}
-
-					hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, false, PE32.th32ProcessID);
-					if (!hProcess)
-					{
-						Fail(_T("OpenProcess failed during inject!"));
-						return 1;
 					}
 
 					lpRemoteString = VirtualAllocEx(hProcess, 0, sizeof(szDllToInject), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 					if (!lpRemoteString)
 					{
-						Fail(_T("VirtualAllocEx failed during inject!"));
 						CloseHandle(hProcess);
-						return 1;
+						Fail(_T("VirtualAllocEx failed during inject!"));
 					}
 
 					WriteProcessMemory(hProcess, lpRemoteString, (LPVOID)szDllToInject, sizeof(szDllToInject), NULL);
@@ -148,12 +172,11 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 					if (!GetExitCodeThread(hThread, &exitCode))
 					{
 						Fail(_T("Could not get exit code of remote thread !"));
-						return 1;
 					}
 					if (!exitCode)
 					{
 						MessageBox(NULL, _T("Remote LoadLibraryW returned a NULL handle!"), _T("Error!"), MB_ICONERROR | MB_OK);
-						return 1;
+						ExitProcess(1);
 					}
 					VirtualFreeEx(hProcess, lpRemoteString, 0, MEM_RELEASE); // get rid of our temporary string text
 					CloseHandle(hProcess);
