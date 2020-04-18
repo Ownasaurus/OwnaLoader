@@ -9,6 +9,7 @@ HWND hWnd;
 
 PROCESSENTRY32 PE32;
 NOTIFYICONDATA data;
+BOOL bDllArch = FALSE;
 TCHAR szTarget[] = _T("Game.exe"); // <-- change this if you want to use the loader with another game!
 TCHAR szPath[MAX_PATH], szDllToInject[MAX_PATH];
 
@@ -121,7 +122,8 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 				std::list<DWORD>::iterator it = std::find(aulInjectedPIDs.begin(), end, PE32.th32ProcessID);
 				if (it == end) // if not already injected, inject it!
 				{
-					hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, false, PE32.th32ProcessID);
+					hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION
+						| PROCESS_VM_WRITE | PROCESS_VM_READ, false, PE32.th32ProcessID);
 					if (!hProcess)
 					{
 						Fail(_T("OpenProcess failed during inject!"));
@@ -142,6 +144,18 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 						else
 						{
 							MessageBox(NULL, _T("This 64-bit injector should not be used to inject into a 32-bit process!"), _T("Error!"), MB_ICONERROR | MB_OK);
+						}
+						ExitProcess(1);
+					}
+					else if (bOurArch != bDllArch)
+					{
+						if (bOurArch)
+						{
+							MessageBox(NULL, _T("This 32-bit injector should not be used to inject a 64-bit dll!"), _T("Error!"), MB_ICONERROR | MB_OK);
+						}
+						else
+						{
+							MessageBox(NULL, _T("This 64-bit injector should not be used to inject a 32-bit dll!"), _T("Error!"), MB_ICONERROR | MB_OK);
 						}
 						ExitProcess(1);
 					}
@@ -310,14 +324,47 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     // Find the .dll and make sure it exists. Otherwise notify and exit.
     WIN32_FIND_DATA fnd;
-    HANDLE DllHnd = FindFirstFile(szDllToInject, &fnd);
-    if (DllHnd == INVALID_HANDLE_VALUE)
+    HANDLE hDllHnd = FindFirstFile(szDllToInject, &fnd);
+    if (hDllHnd == INVALID_HANDLE_VALUE)
     {
         TCHAR szFailMsg[512] = { 0 };
         _stprintf_s(szFailMsg, _T("The library to be injected could not be found:\n\n\"%s\""), szDllToInject);
 		Fail(szFailMsg);
         return 1;
     }
+
+	HANDLE hFile = CreateFile(szDllToInject, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL);
+	if (hFile == INVALID_HANDLE_VALUE)
+	{
+		Fail(_T("CreateFile failed while attempting to analyze the .dll"));
+	}
+
+	HANDLE hMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY | SEC_IMAGE, 0, 0, 0);
+	if (!hMapping || hMapping == INVALID_HANDLE_VALUE)
+	{
+		CloseHandle(hFile);
+		Fail(_T("CreateFileMapping failed while attempting to analyze the .dll"));
+	}
+
+	LPVOID addrHeader = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+	if (addrHeader == NULL)
+	{
+		CloseHandle(hFile);
+		CloseHandle(hMapping);
+		Fail(_T("MapViewOfFile failed while attempting to analyze the .dll"));
+	}
+
+	PIMAGE_NT_HEADERS peHdr = ImageNtHeader(addrHeader);
+	if (peHdr == NULL)
+	{
+		Fail(_T("ImageNtHeader failed while attempting to analyze the .dll"));
+	}
+
+	bDllArch = (peHdr->FileHeader.Machine == IMAGE_FILE_MACHINE_I386); // true if x86 .dll
+
+	CloseHandle(hFile);
+	CloseHandle(hMapping);
+	FindClose(hDllHnd);
 
 	// Set tray icon data
     data.cbSize = sizeof(NOTIFYICONDATA);

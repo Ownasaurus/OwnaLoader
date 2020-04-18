@@ -1,7 +1,9 @@
 x64/
 Release/
+Debug/
 .vs/
 OwnaLoader2020/x64/
 OwnaLoader2020/Release/
+OwnaLoader2020/Debug/
 *.filters
 *.user

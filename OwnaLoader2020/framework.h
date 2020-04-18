@@ -10,6 +10,8 @@
 #include <windows.h>
 #include <TLHELP32.H>
 #include <shellapi.h>
+#include <DbgHelp.h>
+#pragma comment(lib, "dbghelp.lib")
 // C RunTime Header Files
 #include <stdlib.h>
 #include <malloc.h>
