@@ -15,6 +15,8 @@
 #include <malloc.h>
 #include <memory.h>
 #include <tchar.h>
+#include <psapi.h>
 // C++ RunTime Header Files
 #include <list>
+#include <string>
 #define WM_TRAY (WM_USER + 1)

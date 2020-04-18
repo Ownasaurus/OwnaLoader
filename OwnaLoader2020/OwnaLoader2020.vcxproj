@@ -163,6 +163,7 @@
     <ResourceCompile Include="OwnaLoader2020.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="0wna3D.ico" />
     <Image Include="background.bmp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -94,7 +94,7 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 	HANDLE hSnapshot, hProcess, hThread;
 	HMODULE hKernel32;
 	LPVOID lpRemoteString = NULL;
-	FARPROC lpLoadLibraryA;
+	FARPROC lpLoadLibraryW;
 	PE32.dwSize = sizeof(PROCESSENTRY32);
 
 	while (TRUE)
@@ -113,60 +113,64 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 				if (it == end) // if not already injected, inject it!
 				{
 					hKernel32 = GetModuleHandle(_T("kernel32"));
-					if (hKernel32)
-					{
-						lpLoadLibraryA = GetProcAddress(hKernel32, "LoadLibraryA");
-						if (lpLoadLibraryA)
-						{
-							hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, false, PE32.th32ProcessID);
-							if (hProcess)
-							{
-								lpRemoteString = VirtualAllocEx(hProcess, 0, sizeof(szDllToInject), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-
-								if (lpRemoteString)
-								{
-									WriteProcessMemory(hProcess, lpRemoteString, (LPVOID)szDllToInject, sizeof(szDllToInject), NULL);
-									hThread = CreateRemoteThread(hProcess, NULL, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(lpLoadLibraryA), lpRemoteString, 0, NULL);
-									WaitForSingleObject(hThread, INFINITE);
-									VirtualFreeEx(hProcess, lpRemoteString, 0, MEM_RELEASE);
-									CloseHandle(hProcess);
-									CloseHandle(hThread);
-
-									aulInjectedPIDs.push_back(PE32.th32ProcessID); // add to our list of injected PIDs
-								}
-								else
-								{
-									Fail(_T("VirtualAllocEx failed during inject!"));
-									CloseHandle(hProcess);
-									return 1;
-								}
-							}
-							else
-							{
-								Fail(_T("OpenProcess failed during inject!"));
-								return 1;
-							}
-						}
-						else
-						{
-							Fail(_T("GetProcAddress failed during inject!"));
-							return 1;
-						}
-					}
-					else
+					if (!hKernel32)
 					{
 						Fail(_T("GetModuleHandle failed during inject!"));
 						return 1;
 					}
+
+					lpLoadLibraryW = GetProcAddress(hKernel32, "LoadLibraryW");
+					if (!lpLoadLibraryW)
+					{
+						Fail(_T("GetProcAddress failed during inject!"));
+						return 1;
+					}
+
+					hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, false, PE32.th32ProcessID);
+					if (!hProcess)
+					{
+						Fail(_T("OpenProcess failed during inject!"));
+						return 1;
+					}
+
+					lpRemoteString = VirtualAllocEx(hProcess, 0, sizeof(szDllToInject), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+					if (!lpRemoteString)
+					{
+						Fail(_T("VirtualAllocEx failed during inject!"));
+						CloseHandle(hProcess);
+						return 1;
+					}
+
+					WriteProcessMemory(hProcess, lpRemoteString, (LPVOID)szDllToInject, sizeof(szDllToInject), NULL);
+					hThread = CreateRemoteThread(hProcess, NULL, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(lpLoadLibraryW), lpRemoteString, 0, NULL);
+					WaitForSingleObject(hThread, INFINITE);
+					DWORD exitCode;
+					if (!GetExitCodeThread(hThread, &exitCode))
+					{
+						Fail(_T("Could not get exit code of remote thread !"));
+						return 1;
+					}
+					if (!exitCode)
+					{
+						MessageBox(NULL, _T("Remote LoadLibraryW returned a NULL handle!"), _T("Error!"), MB_ICONERROR | MB_OK);
+						return 1;
+					}
+					VirtualFreeEx(hProcess, lpRemoteString, 0, MEM_RELEASE); // get rid of our temporary string text
+					CloseHandle(hProcess);
+					CloseHandle(hThread);
+
+					//TODO: store the exitCode (which is a handle) AND PID as a tuple in the list.
+					aulInjectedPIDs.push_back(PE32.th32ProcessID); // add to our list of injected PIDs
 				}
 
-				if (GetAsyncKeyState(VK_F11) & 1) // Abort key! Un-inject everything!
+				//TODO: FreeLibrary with the handle to the result of the remote loadlibrary
+				/*if (GetAsyncKeyState(VK_F11) & 1) // Abort key! Un-inject everything!
 				{
 					hKernel32 = GetModuleHandle(_T("kernel32"));
 					if (hKernel32)
 					{
-						FARPROC lpFreeLibraryA = GetProcAddress(hKernel32, "FreeLibraryA");
-						if (lpFreeLibraryA)
+						FARPROC lpFreeLibrary = GetProcAddress(hKernel32, "FreeLibrary");
+						if (lpFreeLibrary)
 						{
 							while(!aulInjectedPIDs.empty())
 							{
@@ -178,7 +182,7 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 									if (lpRemoteString)
 									{
 										WriteProcessMemory(hProcess, lpRemoteString, (LPVOID)szDllToInject, sizeof(szDllToInject), NULL);
-										hThread = CreateRemoteThread(hProcess, NULL, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(lpFreeLibraryA), lpRemoteString, 0, NULL);
+										hThread = CreateRemoteThread(hProcess, NULL, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(lpFreeLibrary), lpRemoteString, 0, NULL);
 										WaitForSingleObject(hThread, INFINITE);
 										VirtualFreeEx(hProcess, lpRemoteString, 0, MEM_RELEASE);
 										CloseHandle(hProcess);
@@ -207,7 +211,7 @@ DWORD WINAPI InjectionThread(LPVOID lpParam)
 						Fail(_T("GetModuleHandle failed during un-inject!"));
 						return 1;
 					}
-				}
+				}*/
 			}
 		}
 		while (Process32Next(hSnapshot, &PE32));
@@ -266,7 +270,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_ int       nCmdShow)
 {
 	// Get debug privledges so we can OpenProcess other processes
-	EnableDebugPrivledges();
+	if (!EnableDebugPrivledges())
+	{
+		MessageBox(NULL, _T("Could not acquire sufficient privledges for injection.\nPlease run as administrator."), _T("Doh"), NULL);
+		return 1;
+	}
 
     // Load szDllToInject with the path of the DLL to be injected, determined based on the filename of this program
     // just replace ".exe" with ".dll".
@@ -289,14 +297,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
 
 	// Set tray icon data
-    TCHAR szMessage[] = _T("Click here to restore the window.");
     data.cbSize = sizeof(NOTIFYICONDATA);
-    data.hIcon = LoadIcon(hInstance, (PTCHAR)IDC_MYICON);
+    data.hIcon = LoadIcon(hInstance, (PTCHAR)IDI_ICON1);
     data.uCallbackMessage = WM_TRAY;
-    data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_INFO;
+    data.uFlags = NIF_MESSAGE | NIF_ICON;
     data.uID = 1;
-    _stprintf_s(data.szInfo, szMessage);
-    _stprintf_s(data.szInfoTitle, _T("All your base are belong to us!"));
     data.dwInfoFlags = NIIF_INFO;
 
 	DWORD dwParam1, dwThreadID1;
